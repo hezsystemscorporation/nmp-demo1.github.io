@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neo-Marco Polo MVP</title>
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 React 和 ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- 引入 Babel 用于在浏览器中编译 JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      /* 全局动画与自定义样式 */
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes slideInRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+      @keyframes modalPop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+      
+      .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+      .animate-slide-right { animation: slideInRight 0.4s ease-out forwards; }
+      .animate-modal-pop { animation: modalPop 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      
+      .arc-swipe-left { transform-origin: bottom center; transform: rotate(-35deg) translateX(-120%) translateY(-50px); opacity: 0; }
+      .arc-swipe-right { transform-origin: bottom center; transform: rotate(35deg) translateX(120%) translateY(-50px); opacity: 0; }
+      
+      @media print {
+        body * { visibility: hidden; }
+        #printable-invoice, #printable-invoice * { visibility: visible; }
+        #printable-invoice { position: absolute; left: 0; top: 0; width: 100%; padding: 0; margin: 0; }
+        .no-print { display: none !important; }
+      }
+      
+      .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #e5e7eb; border-radius: 10px; }
+    </style>
+    <script>
+    document.addEventListener("contextmenu", function(e){
+        e.preventDefault();
+    });
+    </script>
+</head>
+<body class="bg-white text-gray-800 font-sans selection:bg-[#ffbf69] selection:text-white">
+    <!-- React 挂载点 -->
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // === 主题色配置 ===
+        const COLORS = {
+          dragonBall: '#ff9f1c',
+          seaBuckthorn: '#ffbf69',
+          fatback: '#fff7ee',
+          blueGreen: '#2ec4b6'
+        };
+
+        // === 手动构建用到的 SVG 图标组件 (替代 lucide-react 以适应纯 HTML) ===
+        const SvgIcon = ({ d, ...props }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+                {d}
+            </svg>
+        );
+        const Compass = (p) => <SvgIcon {...p} d={<><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></>} />;
+        const MapPin = (p) => <SvgIcon {...p} d={<><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></>} />;
+        const MessageCircle = (p) => <SvgIcon {...p} d={<><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></>} />;
+        const Heart = (p) => <SvgIcon {...p} d={<><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></>} />;
+        const X = (p) => <SvgIcon {...p} d={<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>} />;
+        const Plane = (p) => <SvgIcon {...p} d={<><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.2-1.1.6L3 8l5.5 4L5 15.5 2.8 15l-1.3 1.3L5 19l2.7 3.5 1.3-1.3-.5-2.2 3.5-3.5 4 5.5c.3.5.7.5 1 .3z"/></>} />;
+        const Calendar = (p) => <SvgIcon {...p} d={<><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>} />;
+        const User = (p) => <SvgIcon {...p} d={<><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>} />;
+        const Sparkles = (p) => <SvgIcon {...p} d={<><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></>} />;
+        const Send = (p) => <SvgIcon {...p} d={<><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></>} />;
+        const Coffee = (p) => <SvgIcon {...p} d={<><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></>} />;
+        const XCircle = (p) => <SvgIcon {...p} d={<><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></>} />;
+        const ArrowRight = (p) => <SvgIcon {...p} d={<><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></>} />;
+        const Download = (p) => <SvgIcon {...p} d={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>} />;
+        const Clock = (p) => <SvgIcon {...p} d={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />;
+        const CheckCircle2 = (p) => <SvgIcon {...p} d={<><circle cx="12" cy="12" r="10"/><polyline points="9 11 12 14 22 4"/></>} />;
+        const ChevronDown = (p) => <SvgIcon {...p} d={<><polyline points="6 9 12 15 18 9"/></>} />;
+        const LogOut = (p) => <SvgIcon {...p} d={<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>} />;
+        const ShieldCheck = (p) => <SvgIcon {...p} d={<><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></>} />;
+
+        // ================= MAIN APP COMPONENT =================
+        function App() {
+          const [activeTab, setActiveTab] = useState('home');
+          const [isChatOpen, setIsChatOpen] = useState(false);
+          
+          // 本地登录状态管理
+          const [isLoggedIn, setIsLoggedIn] = useState(false);
+          const [username, setUsername] = useState('');
+
+          useEffect(() => {
+            const loginState = localStorage.getItem('nmp_logged_in');
+            if (loginState === 'true') {
+              setIsLoggedIn(true);
+              setUsername(localStorage.getItem('nmp_username') || 'Guest_User');
+            }
+          }, []);
+
+          const handleLogin = () => {
+            localStorage.setItem('nmp_logged_in', 'true');
+            localStorage.setItem('nmp_username', 'Neo_Traveler');
+            setIsLoggedIn(true);
+            setUsername('Neo_Traveler');
+          };
+
+          const handleLogout = () => {
+            localStorage.removeItem('nmp_logged_in');
+            localStorage.removeItem('nmp_username');
+            setIsLoggedIn(false);
+            setUsername('');
+          };
+          
+          // 核心数据流：跨组件共享的行程清单
+          const [plannerItems, setPlannerItems] = useState([
+            { id: 'def-1', type: 'hotel', name: 'Four Seasons Hotel Guangzhou', time: '14:00 PM', price: 250, date: 'Day 1' }
+          ]);
+
+          // === 核心业务逻辑：全局添加行程验证器 ===
+          const handleAddMultipleToPlanner = (newItems) => {
+            let successCount = 0;
+            setPlannerItems(prev => {
+              let updated = [...prev];
+              let errorMsgs = [];
+
+              for (const item of newItems) {
+                // 规则 1：防重复名称
+                if (updated.some(p => p.name === item.name)) {
+                  errorMsgs.push(`Skipped "${item.name}": Already in planner.`);
+                  continue;
+                }
+                
+                // 规则 2：酒店排他原则 (一天只能有一家酒店)
+                if (item.type === 'hotel') {
+                  const existingHotel = updated.find(p => p.type === 'hotel' && p.date === item.date);
+                  if (existingHotel) {
+                    errorMsgs.push(`Skipped hotel "${item.name}": You already booked "${existingHotel.name}" for ${item.date}. Only 1 hotel per night allowed.`);
+                    continue;
+                  }
+                }
+
+                updated.push({ ...item, id: `new-${Date.now()}-${Math.random()}` });
+                successCount++;
+              }
+
+              if (errorMsgs.length > 0) alert(errorMsgs.join('\n\n'));
+              return updated;
+            });
+            
+            return successCount > 0; // 返回是否至少成功添加了一个
+          };
+
+          const navigateTo = (tab) => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            setActiveTab(tab);
+          };
+
+          return (
+            <div className="min-h-screen relative pb-24">
+              {/* 顶部导航栏 */}
+              <nav className="sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md border-b border-gray-100 no-print">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="flex justify-between items-center h-20">
+                    <div className="flex items-center cursor-pointer group" onClick={() => navigateTo('home')}>
+                      <Compass className="h-8 w-8 transition-transform group-hover:rotate-45 duration-500" style={{ color: COLORS.dragonBall }} />
+                      <span className="ml-2 text-2xl font-bold tracking-tight text-gray-900">
+                        Neo-Marco Polo
+                      </span>
+                    </div>
+                    
+                    <div className="hidden md:flex space-x-8">
+                      {['home', 'dna', 'route', 'planner'].map((tab) => (
+                        <button 
+                          key={tab}
+                          onClick={() => navigateTo(tab)} 
+                          className={`text-sm font-medium transition-all duration-300 relative ${activeTab === tab ? 'text-[#ff9f1c]' : 'text-gray-500 hover:text-gray-900'}`}
+                        >
+                          {tab === 'home' ? '首页 (Home)' : tab === 'dna' ? '旅行者 DNA' : tab === 'route' ? '城市与线路' : '智能规划'}
+                          {activeTab === tab && (
+                            <span className="absolute -bottom-7 left-1/2 w-8 h-1 bg-[#ff9f1c] -translate-x-1/2 rounded-t-full"></span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center space-x-4">
+                      {isLoggedIn ? (
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm font-bold text-gray-700 hidden md:block">Hi, {username}</span>
+                          <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-500 transition-colors">
+                            <LogOut className="w-5 h-5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={handleLogin} className="px-6 py-2.5 rounded-full text-white font-semibold transition-transform hover:-translate-y-0.5 active:scale-95 shadow-md" style={{ backgroundColor: COLORS.dragonBall }}>
+                          Log In
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </nav>
+
+              <main key={activeTab} className="animate-fade-in">
+                {activeTab === 'home' && <HomeView navigateTo={navigateTo} />}
+                {activeTab === 'dna' && <TravelerDNAView navigateTo={navigateTo} />}
+                {activeTab === 'route' && <CityRoutesView navigateTo={navigateTo} handleAddMultipleToPlanner={handleAddMultipleToPlanner} />}
+                {activeTab === 'planner' && <PlannerView plannerItems={plannerItems} setPlannerItems={setPlannerItems} handleAddMultipleToPlanner={handleAddMultipleToPlanner} />}
+              </main>
+
+              <FloatingChat 
+                isChatOpen={isChatOpen} 
+                setIsChatOpen={setIsChatOpen} 
+                plannerItems={plannerItems} 
+                handleAddMultipleToPlanner={handleAddMultipleToPlanner} 
+              />
+            </div>
+          );
+        }
+
+        // ================= VIEWS =================
+
+        // 1. 首页视图
+        function HomeView({ navigateTo }) {
+          return (
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 md:pt-24">
+              <div className="text-center max-w-4xl mx-auto animate-slide-right">
+                <h1 className="text-5xl md:text-7xl font-extrabold text-gray-900 tracking-tight leading-tight">
+                  Unfiltered China in <br/>
+                  <span style={{ color: COLORS.dragonBall }}>Your Path, Your Pace.</span>
+                </h1>
+                <p className="mt-6 text-xl text-gray-500 max-w-2xl mx-auto leading-relaxed">
+                  The ultimate platform for international travelers. AI-powered itineraries, local bilingual volunteer 'Bridge', and pure authentic experiences.
+                </p>
+                
+                <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
+                  <button onClick={() => navigateTo('dna')} className="px-8 py-4 rounded-full text-white font-semibold text-lg transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95 flex items-center justify-center" style={{ backgroundColor: COLORS.dragonBall }}>
+                    <Sparkles className="w-5 h-5 mr-2" /> Discover Your Traveler DNA
+                  </button>
+                  <button onClick={() => navigateTo('route')} className="px-8 py-4 rounded-full text-gray-800 font-semibold text-lg transition-all border border-gray-200 hover:bg-gray-50 hover:-translate-y-1 active:scale-95 flex items-center justify-center bg-white">
+                    <MapPin className="w-5 h-5 mr-2 text-gray-500" /> Explore Cities & Routes
+                  </button>
+                </div>
+              </div>
+
+              {/* 底部自动循环播放的视频 Hero */}
+              <div className="mt-20 mb-8 relative w-full h-[400px] md:h-[550px] rounded-3xl overflow-hidden shadow-2xl group animate-fade-in" style={{ animationDelay: '0.3s' }}>
+                <div className="absolute inset-0 bg-gray-900/20 group-hover:bg-gray-900/10 transition-colors duration-700 z-10 pointer-events-none"></div>
+                <video 
+                  autoPlay 
+                  loop 
+                  muted 
+                  playsInline 
+                  className="w-full h-full object-cover transform transition-transform duration-1000 group-hover:scale-105"
+                >
+                  <source src="./assets/hv.mp4" type="video/mp4" />
+                  Your browser does not support the video tag.
+                </video>
+                <div className="absolute bottom-8 left-8 md:bottom-12 md:left-12 z-20">
+                  <span className="px-4 py-2 rounded-full text-sm font-bold bg-white/30 backdrop-blur-md text-white border border-white/40 shadow-lg flex items-center">
+                    <Sparkles className="w-4 h-4 mr-2" /> Real Encounters, Real China
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // 2. Traveler DNA 视图
+        function TravelerDNAView({ navigateTo }) {
+          const [currentIndex, setCurrentIndex] = useState(0);
+          const [animation, setAnimation] = useState('');
+          const [selectedOption, setSelectedOption] = useState(null);
+          const [collectedTags, setCollectedTags] = useState([]);
+          const [result, setResult] = useState(null);
+
+          const questions = [
+            { id: 1, left: "赛博科技 (Tech)", leftTag: "Tech_City", right: "历史厚重 (Historical)", rightTag: "History", img: "./assets/sim.jpg" },
+            { id: 2, left: "特种兵打卡 (Intense)", leftTag: "Fast_Paced", right: "松弛感 (Relaxed)", rightTag: "Slow_Pace", img: "./assets/sim.jpg" },
+            { id: 3, left: "市井烟火 (Local Life)", leftTag: "Foodie", right: "奢华享受 (Luxury)", rightTag: "Luxury", img: "./assets/sim.jpg" }
+          ];
+
+          const handleConfirm = () => {
+            if (!selectedOption) return;
+            const currentQ = questions[currentIndex];
+            const newTag = selectedOption === 'left' ? currentQ.leftTag : currentQ.rightTag;
+            setCollectedTags(prev => [...prev, newTag]);
+            setAnimation(selectedOption === 'left' ? 'arc-swipe-left' : 'arc-swipe-right');
+            
+            setTimeout(() => {
+              if (currentIndex < questions.length - 1) {
+                setCurrentIndex(prev => prev + 1);
+                setSelectedOption(null);
+                setAnimation('');
+              } else {
+                const isTech = collectedTags.includes('Tech_City') || newTag === 'Tech_City';
+                const isFoodie = collectedTags.includes('Foodie') || newTag === 'Foodie';
+                let persona = "Cultural Wanderer (文化漫步者)";
+                let recRoute = "Historical Trace of Shamian";
+                if (isTech && isFoodie) { persona = "Cyber-Foodie Explorer (赛博美食家)"; recRoute = "Cantonese Dim Sum & Modernity"; }
+                else if (isFoodie) { persona = "Local Flavor Hunter (市井寻味者)"; recRoute = "Local Market & Hidden Gems"; }
+                setResult({ persona, tags: [...collectedTags, newTag], recommendedRoute: recRoute });
+              }
+            }, 500);
+          };
+
+          if (result) {
+            return (
+              <div className="max-w-4xl mx-auto px-4 py-20 text-center animate-modal-pop">
+                <div className="p-12 rounded-3xl border border-gray-100 shadow-[0_20px_50px_rgba(0,0,0,0.05)] bg-white relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-3" style={{ backgroundColor: COLORS.dragonBall }}></div>
+                  <ShieldCheck className="w-20 h-20 mx-auto mb-6" style={{ color: COLORS.dragonBall }} />
+                  <h2 className="text-3xl font-bold text-gray-900 mb-2">DNA Analysis Complete</h2>
+                  <div className="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#ff9f1c] to-[#ffbf69] mb-6">{result.persona}</div>
+                  <div className="flex justify-center flex-wrap gap-2 mb-8">
+                    {result.tags.map(tag => <span key={tag} className="px-4 py-1.5 rounded-full text-sm font-bold bg-gray-100 text-gray-600 border border-gray-200">#{tag}</span>)}
+                  </div>
+                  <div className="bg-[#fff7ee] p-6 rounded-2xl border border-[#ffbf69]/30 mb-10 max-w-2xl mx-auto text-left">
+                    <h3 className="font-bold text-gray-900 mb-2 flex items-center"><Sparkles className="w-5 h-5 mr-2" style={{color: COLORS.dragonBall}}/> Perfect Match Found</h3>
+                    <p className="text-gray-600 text-sm leading-relaxed">Based on your specific traits, we highly recommend the <strong>"{result.recommendedRoute}"</strong> route in Guangzhou.</p>
+                  </div>
+                  <button onClick={() => navigateTo('route')} className="px-10 py-5 rounded-full text-white font-bold text-lg shadow-lg hover:shadow-xl transition-all hover:-translate-y-1 active:scale-95 flex items-center justify-center mx-auto" style={{ backgroundColor: COLORS.dragonBall }}>
+                    View My Matched Route <ArrowRight className="ml-2 w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="max-w-md mx-auto px-4 py-12">
+              <div className="text-center mb-8">
+                <h2 className="text-3xl font-bold text-gray-900">Traveler DNA</h2>
+                <div className="flex justify-center gap-2 mt-6">
+                  {questions.map((_, idx) => <div key={idx} className={`h-1.5 rounded-full transition-all duration-500 ${idx === currentIndex ? 'w-10 bg-[#ff9f1c]' : 'w-3 bg-gray-200'}`} />)}
+                </div>
+              </div>
+              <div className="relative h-[450px] w-full perspective-1000">
+                {questions.map((q, idx) => {
+                  if (idx < currentIndex) return null;
+                  return (
+                    <div key={q.id} className={`absolute inset-0 bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden transition-all duration-500 ${idx === currentIndex ? `z-20 ${animation}` : 'z-10 scale-[0.92] translate-y-6 opacity-60'}`}>
+                      <div className="relative h-[55%] w-full overflow-hidden">
+                        <img src={q.img} alt="theme" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                      </div>
+                      <div className="h-[45%] bg-white p-4 flex flex-col justify-between">
+                        <h3 className="text-center font-bold text-gray-900 mb-2">Which vibe suits you?</h3>
+                        <div className="grid grid-cols-2 gap-3 h-24">
+                          <button onClick={() => setSelectedOption('left')} className={`rounded-2xl border-2 p-3 font-bold text-sm ${selectedOption === 'left' ? 'border-[#ff9f1c] bg-[#fff7ee] text-[#ff9f1c]' : 'border-gray-100 bg-gray-50 text-gray-600'}`}>{q.left}</button>
+                          <button onClick={() => setSelectedOption('right')} className={`rounded-2xl border-2 p-3 font-bold text-sm ${selectedOption === 'right' ? 'border-[#ff9f1c] bg-[#fff7ee] text-[#ff9f1c]' : 'border-gray-100 bg-gray-50 text-gray-600'}`}>{q.right}</button>
+                        </div>
+                        <button onClick={handleConfirm} disabled={!selectedOption} className={`mt-4 w-full py-3.5 rounded-xl font-bold flex items-center justify-center ${selectedOption ? 'bg-[#ff9f1c] text-white' : 'bg-gray-100 text-gray-400'}`}>
+                          Confirm Choice <CheckCircle2 className="w-5 h-5 ml-2" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+
+        // 3. 城市与黄金线路视图
+        function CityRoutesView({ navigateTo, handleAddMultipleToPlanner }) {
+          const [activeCity, setActiveCity] = useState('Guangzhou');
+          const [selectedRoute, setSelectedRoute] = useState(null);
+
+          const cityData = {
+            'Guangzhou': {
+              heroImg: "./assets/sim.jpg",
+              desc: "The Fusion of Time. Where centuries-old Lingnan heritage meets breathtaking cyberpunk skyscrapers.",
+              routes: [
+                { 
+                  id: 'gz1', day: "Day 1", title: "Cantonese Dim Sum & Modernity", desc: "Morning tea at Tao Tao Ju, afternoon at Canton Tower.", img: "./assets/sim.jpg", tags: ["Foodie", "Tech_City"],
+                  detailDesc: "Start your day with Yam Cha at Tao Tao Ju. In the afternoon, teleport to the future at Canton Tower.",
+                  schedule: [
+                    { type: 'activity', name: 'Yam Cha @ Tao Tao Ju', time: '09:00 AM', price: 30, date: 'Day 1' },
+                    { type: 'activity', name: 'Canton Tower Sky Drop', time: '14:00 PM', price: 45, date: 'Day 1' }
+                  ]
+                },
+                { 
+                  id: 'gz2', day: "Day 2", title: "Local Market & Hidden Gems", desc: "Dongshankou artistic vibe and local wholesale markets.", img: "./assets/sim.jpg", tags: ["Local", "Foodie"],
+                  detailDesc: "Dive into youth culture at Dongshankou. Later, experience budget fun at massive local markets.",
+                  schedule: [
+                    { type: 'activity', name: 'Dongshankou Cafe Hopping', time: '11:00 AM', price: 15, date: 'Day 2' }
+                  ]
+                }
+              ]
+            },
+            'Changsha': {
+              heroImg: "./assets/sim.jpg",
+              desc: "The City of Stars. Spicy food, vibrant nightlife, and rich modern history.",
+              routes: [
+                { 
+                  id: 'cs1', day: "Day 1", title: "Spicy Crayfish Night", desc: "Explore Wenheyou and eat authentic spicy crayfish.", img: "./assets/sim.jpg", tags: ["Foodie", "Nightlife"],
+                  detailDesc: "Immerse in the retro 80s vibe of Super Wenheyou, followed by iconic Changsha snacks.",
+                  schedule: [
+                    { type: 'activity', name: 'Super Wenheyou Dinner', time: '18:00 PM', price: 40, date: 'Day 1' }
+                  ]
+                }
+              ]
+            }
+          };
+
+          const handleImport = (schedule) => {
+            const success = handleAddMultipleToPlanner(schedule);
+            if (success) {
+              setSelectedRoute(null);
+              navigateTo('planner');
+            }
+          };
+
+          const currentCity = cityData[activeCity] || cityData['Guangzhou'];
+
+          return (
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 relative">
+              <div className="flex space-x-2 mb-8 overflow-x-auto pb-2 custom-scrollbar">
+                {Object.keys(cityData).map(city => (
+                  <button key={city} onClick={() => setActiveCity(city)} className={`px-6 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition-all ${activeCity === city ? 'bg-gray-900 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                    {city} 城市
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full h-[400px] rounded-3xl overflow-hidden mb-12 shadow-lg animate-fade-in group">
+                <img src={currentCity.heroImg} alt={activeCity} className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105" />
+                <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/40 to-transparent"></div>
+                <div className="absolute bottom-0 left-0 p-10">
+                  <h2 className="text-5xl md:text-6xl font-extrabold text-white mb-4 drop-shadow-md">{activeCity}</h2>
+                  <p className="text-xl text-gray-200 max-w-2xl font-medium drop-shadow-sm">{currentCity.desc}</p>
+                </div>
+              </div>
+              
+              {currentCity.routes.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  {currentCity.routes.map((item, idx) => (
+                    <div key={idx} onClick={() => setSelectedRoute(item)} className="group rounded-3xl overflow-hidden bg-white border border-gray-100 shadow-sm hover:shadow-2xl transition-all cursor-pointer">
+                      <div className="relative h-56 overflow-hidden">
+                        <img src={item.img} alt={item.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                      </div>
+                      <div className="p-6">
+                        <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-[#ff9f1c] transition-colors">{item.title}</h3>
+                        <p className="text-gray-500 text-sm line-clamp-2">{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {selectedRoute && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-fade-in">
+                  <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl animate-modal-pop">
+                    <div className="relative h-72">
+                      <img src={selectedRoute.img} className="w-full h-full object-cover" alt="Detail" />
+                      <button onClick={() => setSelectedRoute(null)} className="absolute top-4 right-4 w-10 h-10 bg-white/30 backdrop-blur-md rounded-full flex items-center justify-center text-white"><X className="w-6 h-6" /></button>
+                    </div>
+                    <div className="p-8">
+                      <h2 className="text-3xl font-bold text-gray-900 mb-2">{selectedRoute.title}</h2>
+                      <div className="space-y-3 mb-8 mt-6">
+                        {selectedRoute.schedule.map((s, i) => (
+                          <div key={i} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                            <span className="font-medium text-gray-900">{s.name} ({s.type})</span>
+                            <span className="font-bold text-gray-900">${s.price}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={() => handleImport(selectedRoute.schedule)} className="float-right px-8 py-4 rounded-xl text-white font-bold shadow-lg" style={{ backgroundColor: COLORS.dragonBall }}>
+                        Import to Planner <ArrowRight className="ml-2 w-5 h-5 inline" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // 4. AI 智能规划视图
+        function PlannerView({ plannerItems, setPlannerItems, handleAddMultipleToPlanner }) {
+          const [showInvoice, setShowInvoice] = useState(false);
+          const [plannerConfig, setPlannerConfig] = useState('Standard');
+
+          const removeItem = (id) => setPlannerItems(plannerItems.filter(item => item.id !== id));
+          const totalCost = plannerItems.reduce((sum, item) => sum + item.price, 0);
+
+          const suggestionsPool = {
+            'Budget': [
+              { type: 'activity', name: 'Sun Yat-sen Memorial', time: '10:00 AM', price: 0, date: 'Day 2' }
+            ],
+            'Standard': [
+              { type: 'activity', name: 'Pearl River Night Cruise', time: '20:00 PM', price: 25, date: 'Day 2' },
+              { type: 'hotel', name: 'White Swan Hotel', time: 'Check-in', price: 180, date: 'Day 2' }
+            ],
+            'Luxury': [
+              { type: 'hotel', name: 'W Hotel Premium Suite', time: 'Check-in', price: 450, date: 'Day 1' },
+              { type: 'activity', name: 'Private Helicopter Tour', time: '15:00 PM', price: 299, date: 'Day 2' }
+            ]
+          };
+
+          if (showInvoice) {
+            return (
+              <div className="max-w-4xl mx-auto px-4 py-12 animate-fade-in" id="printable-invoice">
+                <div className="bg-white p-10 md:p-16 rounded-2xl shadow-sm border border-gray-200">
+                  <div className="flex justify-between items-start border-b border-gray-200 pb-8 mb-8">
+                    <div><h1 className="text-2xl font-bold">Neo-Marco Polo Official Itinerary</h1></div>
+                    <div className="text-right text-gray-500">ORDER #{Math.floor(Math.random()*10000)}</div>
+                  </div>
+                  <table className="w-full text-left mb-8">
+                    <thead><tr className="border-b"><th className="py-2">Item</th><th className="py-2 text-right">Price</th></tr></thead>
+                    <tbody>
+                      {plannerItems.map((item, idx) => (
+                        <tr key={idx} className="border-b border-gray-50">
+                          <td className="py-3 font-medium">[{item.type.toUpperCase()}] {item.date} {item.time} - {item.name}</td>
+                          <td className="py-3 text-right">${item.price}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="text-right text-2xl font-bold">Total: ${totalCost}</div>
+                  <div className="mt-16 flex justify-center gap-4 no-print">
+                    <button onClick={() => setShowInvoice(false)} className="px-6 py-2 bg-gray-200 rounded-xl">Back</button>
+                    <button onClick={() => window.print()} className="px-6 py-2 bg-[#ff9f1c] text-white rounded-xl">Print PDF</button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="max-w-7xl mx-auto px-4 py-12">
+              <div className="flex justify-between items-end mb-10">
+                <div>
+                  <h2 className="text-4xl font-bold text-gray-900 mb-2">Smart Planner</h2>
+                  <p className="text-gray-500">Only 1 Hotel per Date is allowed.</p>
+                </div>
+                <div className="bg-gray-100 p-1.5 rounded-xl flex space-x-1">
+                  {['Budget', 'Standard', 'Luxury'].map(cfg => (
+                    <button key={cfg} onClick={() => setPlannerConfig(cfg)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${plannerConfig === cfg ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>{cfg}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col lg:flex-row gap-10">
+                {/* 左侧 AI 建议池 */}
+                <div className="w-full lg:w-1/3">
+                  <div className="bg-gray-50 p-6 rounded-3xl border border-gray-200 sticky top-24">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="font-bold text-gray-900 flex items-center"><Sparkles className="w-5 h-5 mr-2" style={{color: COLORS.dragonBall}}/> Preset Suggestions</h3>
+                      <span className="text-xs font-bold text-[#ff9f1c] bg-[#fff7ee] px-2 py-1 rounded-md">{plannerConfig} Mode</span>
+                    </div>
+                    <div className="space-y-3">
+                       {suggestionsPool[plannerConfig].map((sug, idx) => {
+                         const isAdded = plannerItems.some(item => item.name === sug.name);
+                         return (
+                           <div key={idx} onClick={() => !isAdded && handleAddMultipleToPlanner([sug])} className={`p-4 rounded-xl border border-dashed text-sm flex items-center justify-between transition-all ${isAdded ? 'bg-gray-100 border-gray-200 opacity-50 cursor-not-allowed' : 'bg-white border-gray-300 hover:border-[#ff9f1c] cursor-pointer group'}`}>
+                             <div className="flex flex-col"><span className={`font-semibold ${isAdded ? 'text-gray-400' : 'text-gray-800 group-hover:text-[#ff9f1c]'}`}>{sug.name}</span><span className="text-xs text-gray-400">{sug.date} | {sug.type}</span></div>
+                             <div className="flex items-center"><span className="font-bold mr-2 text-gray-600">${sug.price}</span>{!isAdded && <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center group-hover:bg-[#ff9f1c] group-hover:text-white">+</div>}</div>
+                           </div>
+                         );
+                       })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 右侧主时间轴 */}
+                <div className="w-full lg:w-2/3">
+                  {plannerItems.length === 0 ? (
+                    <div className="text-center p-16 border-2 border-dashed border-gray-200 rounded-3xl text-gray-400">Your itinerary is empty.</div>
+                  ) : (
+                    <div className="space-y-4 relative before:absolute before:inset-0 before:ml-16 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-gray-200 before:to-transparent">
+                      {/* 简单的排序：按 Day 升序显示 */}
+                      {[...plannerItems].sort((a,b) => a.date.localeCompare(b.date)).map((item, index) => (
+                        <div key={item.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group animate-slide-right">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-gray-100 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10" style={{ color: COLORS.dragonBall }}>
+                            {item.type === 'hotel' ? <MapPin className="w-4 h-4"/> : item.type === 'transport' ? <Plane className="w-4 h-4" /> : <Coffee className="w-4 h-4"/>}
+                          </div>
+                          <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-5 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-lg transition-all relative">
+                            <div className="text-sm font-bold mb-1" style={{ color: COLORS.dragonBall }}>{item.date} {item.time}</div>
+                            <h4 className="font-bold text-gray-900 text-lg mb-1 pr-10">{item.name}</h4>
+                            <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-500 text-[10px] rounded mb-2 uppercase">{item.type}</span>
+                            <p className="font-mono text-gray-500">${item.price}</p>
+                            <button onClick={() => removeItem(item.id)} className="absolute bottom-4 right-4 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all md:opacity-0 md:group-hover:opacity-100"><XCircle className="w-6 h-6" /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {plannerItems.length > 0 && (
+                    <div className="mt-12 bg-gray-900 rounded-3xl p-8 flex flex-col sm:flex-row justify-between items-center shadow-2xl animate-fade-in">
+                      <div className="text-white mb-6 sm:mb-0">
+                        <p className="text-gray-400 text-sm font-medium">Estimated Total Cost</p>
+                        <div className="flex items-end gap-2"><span className="text-4xl font-extrabold text-white">${totalCost.toFixed(2)}</span><span className="text-gray-400 mb-1">USD</span></div>
+                      </div>
+                      <button onClick={() => setShowInvoice(true)} className="px-8 py-4 rounded-xl text-white font-bold text-lg shadow-lg hover:-translate-y-1 active:scale-95 flex items-center" style={{ backgroundColor: COLORS.dragonBall }}>
+                        Checkout & PDF <Download className="ml-2 w-5 h-5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // 5. 悬浮在线交流服务 (Bridge)
+        function FloatingChat({ isChatOpen, setIsChatOpen, plannerItems, handleAddMultipleToPlanner }) {
+          const [messages, setMessages] = useState([
+            { role: 'assistant', content: 'Hi! I am the Neo-Marco Polo AI. Ask me to recommend specific hotels, activities, or transports for your trip, and I can directly add them to your planner!' }
+          ]);
+          const [inputValue, setInputValue] = useState('');
+          const [isLoading, setIsLoading] = useState(false);
+          const messagesEndRef = useRef(null);
+
+          const API_KEY = "sk-dwpqdgjfmilattbmrsvxrenofowjhyaxesietejjynzmpkex";
+
+          useEffect(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          }, [messages, isChatOpen]);
+
+          const handleSend = async () => {
+            if (!inputValue.trim() || isLoading) return;
+            
+            const userMsg = { role: 'user', content: inputValue };
+            const updatedMessages = [...messages, userMsg];
+            setMessages(updatedMessages);
+            setInputValue('');
+            setIsLoading(true);
+
+            const currentItineraryStr = plannerItems.length > 0 
+              ? JSON.stringify(plannerItems.map(i => ({ name: i.name, date: i.date, type: i.type })))
+              : "The user's planner is currently empty.";
+
+            const systemPrompt = `You are a helpful travel assistant for the 'Neo-Marco Polo' platform. 
+            CURRENT ITINERARY of the user: ${currentItineraryStr}
+            
+            CRITICAL INSTRUCTION: If the user asks for a recommendation (hotel, activity, or transport), you MUST output a JSON block in the exact format below, so the system can parse it into an interactive UI button.
+            
+            Format:
+            \`\`\`json
+            {
+              "action": "recommendation",
+              "item": { "type": "activity|hotel|transport", "name": "Place Name", "time": "HH:MM AM", "price": 0, "date": "Day 1" }
+            }
+            \`\`\`
+            
+            RULES:
+            1. Only ONE "hotel" is allowed per date (e.g. Day 1). Check the CURRENT ITINERARY. If they already have a hotel for Day 1, recommend a hotel for Day 2 instead, or inform them they already have one.
+            2. Date field MUST use the format "Day 1", "Day 2", etc.
+            3. Keep non-JSON text very brief.`;
+
+            try {
+              const response = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${API_KEY}`
+                },
+                body: JSON.stringify({
+                  model: "Pro/zai-org/GLM-4.7",
+                  messages: [
+                    { role: "system", content: systemPrompt },
+                    ...updatedMessages.map(m => ({ role: m.role, content: m.content }))
+                  ]
+                })
+              });
+
+              const data = await response.json();
+              if (data.choices && data.choices.length > 0) {
+                setMessages(prev => [...prev, { role: 'assistant', content: data.choices[0].message.content }]);
+              } else {
+                throw new Error("Invalid API response");
+              }
+            } catch (error) {
+              console.error("Chat API Error:", error);
+              setMessages(prev => [...prev, { role: 'assistant', content: 'Network error. Try again later.' }]);
+            } finally {
+              setIsLoading(false);
+            }
+          };
+
+          const renderMessageContent = (content) => {
+            const parts = content.split(/```json\s*([\s\S]*?)\s*```/);
+            
+            return parts.map((part, index) => {
+              if (index % 2 === 1) {
+                try {
+                  const data = JSON.parse(part);
+                  if (data.action === 'recommendation' && data.item) {
+                    const item = data.item;
+                    return (
+                      <div key={index} className="my-3 p-4 bg-white border-2 border-[#ffbf69] rounded-xl shadow-sm text-gray-800 font-sans">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <div className="font-bold text-gray-900 text-base leading-tight">{item.name}</div>
+                            <div className="text-xs text-gray-500 mt-1 uppercase tracking-wider font-semibold">
+                              {item.type} • {item.date} {item.time}
+                            </div>
+                          </div>
+                          <div className="font-bold text-[#ff9f1c]">${item.price}</div>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const success = handleAddMultipleToPlanner([item]);
+                            if (success) alert(`Successfully added ${item.name} to your planner!`);
+                          }}
+                          className="w-full mt-2 py-2 bg-[#ff9f1c] text-white text-sm font-bold rounded-lg hover:bg-[#e88a10] active:scale-95 transition-all shadow-md flex items-center justify-center"
+                        >
+                          + Add to Planner
+                        </button>
+                      </div>
+                    );
+                  }
+                } catch (e) {
+                  console.error("Failed to parse JSON in message", e);
+                  return <pre key={index} className="bg-gray-100 p-2 text-xs rounded mt-2">{part}</pre>;
+                }
+              }
+              return <span key={index}>{part.split('\n').map((line, i) => <React.Fragment key={i}>{line}<br/></React.Fragment>)}</span>;
+            });
+          };
+
+          return (
+            <div className="fixed bottom-6 right-6 z-50 no-print flex flex-col items-end">
+              {isChatOpen && (
+                <div className="mb-4 w-[380px] h-[550px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-modal-pop origin-bottom-right">
+                  <div className="p-4 flex justify-between items-center text-white shrink-0 shadow-md z-10" style={{ backgroundColor: COLORS.dragonBall }}>
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center"><User className="w-5 h-5" /></div>
+                        <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-400 border-2 border-white rounded-full"></div>
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm">Bridge AI Planner</h3>
+                        <p className="text-[10px] text-white/80 uppercase">Context Aware AI</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setIsChatOpen(false)} className="text-white hover:bg-white/20 p-1.5 rounded-full"><X className="w-5 h-5" /></button>
+                  </div>
+
+                  <div className="flex-1 p-4 bg-gray-50 overflow-y-auto custom-scrollbar flex flex-col gap-4">
+                    {messages.map((msg, idx) => (
+                      <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                        <div className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-gray-900 text-white rounded-br-sm' : 'bg-[#fff7ee] border border-gray-200 text-gray-800 rounded-bl-sm shadow-sm'}`}>
+                          {msg.role === 'user' ? msg.content : renderMessageContent(msg.content)}
+                        </div>
+                      </div>
+                    ))}
+                    {isLoading && (
+                      <div className="flex justify-start">
+                        <div className="bg-white border border-gray-200 p-3 rounded-2xl rounded-bl-sm text-gray-500 text-sm flex gap-1">
+                          <span className="animate-bounce">.</span><span className="animate-bounce" style={{animationDelay: '0.2s'}}>.</span><span className="animate-bounce" style={{animationDelay: '0.4s'}}>.</span>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  <div className="p-3 bg-white border-t border-gray-100 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Ask to add a hotel for Day 2..." 
+                        className="flex-1 bg-gray-100 border-transparent rounded-full px-4 py-2.5 text-sm focus:bg-white focus:border-[#ff9f1c] focus:ring-2 focus:ring-[#ffbf69] outline-none transition-all"
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                        disabled={isLoading}
+                      />
+                      <button 
+                        onClick={handleSend}
+                        className={`p-2.5 rounded-full text-white transition-transform flex-shrink-0 ${inputValue.trim() && !isLoading ? 'hover:scale-110 active:scale-95' : 'opacity-50 cursor-not-allowed'}`}
+                        style={{ backgroundColor: COLORS.dragonBall }}
+                        disabled={!inputValue.trim() || isLoading}
+                      >
+                        <Send className="w-4 h-4 ml-0.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!isChatOpen && (
+                <button onClick={() => setIsChatOpen(true)} className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95 group relative border-[3px]" style={{ borderColor: COLORS.dragonBall }}>
+                  <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 border-2 border-white rounded-full animate-pulse"></span>
+                  <MessageCircle className="w-8 h-8 transition-transform group-hover:rotate-12" style={{ color: COLORS.dragonBall }} />
+                </button>
+              )}
+            </div>
+          );
+        }
+
+        // ================= 挂载 React 应用 =================
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
